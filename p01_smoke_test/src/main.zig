@@ -1,74 +1,102 @@
 const std = @import("std");
 const net = std.net;
-const log = std.log;
-const Connection = std.net.Server.Connection;
+const posix = std.posix;
 
-const MAX_BYTES = 2000;
-var shutdown: bool = false;
+
+const log = std.log;
+
+pub const std_options = .{
+    .log_level = .debug
+};
+
+const MAX_BYTES = 2048;
+
+const Client = struct {
+    socket: posix.socket_t,
+    address: net.Address,
+
+    fn handle(client: Client) void {
+        const socket = client.socket;
+        var buffer: [MAX_BYTES]u8 = [_]u8{0} ** MAX_BYTES;
+
+        defer {
+            log.info("closing connection to client {}", .{client.address});
+            posix.close(socket);
+        }
+
+
+        log.info("client {} connected", .{client.address});
+
+        while (true) {
+
+            const read_len = posix.read(socket, &buffer) catch |err| {
+                log.err("error reading: {}", .{err});
+                return;
+            };
+
+            log.debug("read {} bytes", .{read_len});
+            if (read_len == 0) return;
+
+            log.debug("{s}", .{buffer[0..read_len]});
+
+            write(socket, buffer[0..read_len]) catch |err| {
+                log.err("error writing: {}", .{err});
+            };
+        }
+
+    }
+
+};
+
+
+fn write(socket: posix.socket_t, msg: []const u8) !void {
+    var pos: usize = 0;
+
+    while (pos < msg.len) {
+        const written = try posix.write(socket, msg);
+
+        if (written == 0) return error.Closed;
+
+        pos += written;
+    }
+}
 
 pub fn main() !void {
+
     const host = [4]u8{ 0, 0, 0, 0 };
     const port = 8000;
     const addr = net.Address.initIp4(host, port);
 
-    const socket = try std.posix.socket(
+    const listener = try std.posix.socket(
         addr.any.family, 
-        std.posix.SOCK.STREAM, 
+        std.posix.SOCK.STREAM,
         std.posix.IPPROTO.TCP
     );
+    defer posix.close(listener);
 
-    const stream = net.Stream{ .handle = socket };
-    defer stream.close(); // closes socket for us
+    try posix.setsockopt(listener, posix.SOL.SOCKET, posix.SO.REUSEADDR, &std.mem.toBytes(@as(c_int, 1)));
+    try posix.bind(listener, &addr.any, addr.getOsSockLen());
+    try posix.listen(listener, 128);
 
-    var server = try addr.listen(.{ .reuse_address = true });
-    defer server.deinit();
-
-    log.info("Server listening on {}", .{addr});
+    log.info("Listening on {}", .{addr});
 
 
     while (true) {
 
-        const connection = try server.accept();
+        var client_addr: net.Address = undefined;
+        var client_addr_len: posix.socklen_t = @sizeOf(net.Address);
 
-        const handler = try std.Thread.spawn(.{}, run, .{connection});
-        handler.detach();
-
-
-    }
-
-}
-
-fn run(conn: Connection) !void {
-
-    log.info("got connection from: {}", .{conn.address});
-
-    defer {
-        log.info("closing connection stream to {}", .{conn.address});
-        conn.stream.close();
-    }
-
-    var buffer: [MAX_BYTES]u8 = [_]u8{0} ** MAX_BYTES;
-
-    const reader = conn.stream.reader();
-    const writer = conn.stream.writer();
-
-    while (true) {
-        const n_read_bytes = reader.read(&buffer) catch {
-            log.info("lost connection to {}", .{conn.address});
-            return;
+        const socket = posix.accept(listener, &client_addr.any, &client_addr_len, 0) catch |err| {
+            log.err("error accept: {}", .{err});
+            continue;
         };
 
-        if (n_read_bytes == 0) {
-            log.info("recieved 0 bytes", .{});
-            shutdown = true;
-            return;
-        }
+        const client = Client{ .socket = socket, .address = addr};
+        const thread = try std.Thread.spawn(.{}, Client.handle, .{client});
+        thread.detach();
 
-
-        log.info("recieved {} bytes\n{s}", .{n_read_bytes, buffer});
-
-        const n_sent_bytes = try writer.write(buffer[0..n_read_bytes]);
-        log.info("sent back {} bytes", .{n_sent_bytes});
     }
+
 }
+
 
