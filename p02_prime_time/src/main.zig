@@ -1,6 +1,8 @@
 const std = @import("std");
 const net = std.net;
 const posix = std.posix;
+const eql = std.mem.eql;
+const Allocator = std.mem.Allocator;
 
 
 const log = std.log;
@@ -9,13 +11,29 @@ pub const std_options = .{
     .log_level = .debug
 };
 
-const MAX_BYTES = 2048;
+const MAX_BYTES = 1638400;
+
+const Request = struct {
+    method: []const u8,
+    number: i32,
+};
+
+// const Response = struct {
+//     method: []const u8,
+//     prime: bool
+// };
+
+
+const response_isprime_true = "{\"method\":\"isPrime\",\"prime\":true}\n";
+const response_isprime_false = "{\"method\":\"isPrime\",\"prime\":false}\n";
+
+// {"number":90248357,"method":"isPrime"}\n{"method":"isPrime","number":38784983}
 
 const Client = struct {
     socket: posix.socket_t,
     address: net.Address,
 
-    fn handle(client: Client) void {
+    fn handle(client: Client, allocator: Allocator) void {
         const socket = client.socket;
         var buffer: [MAX_BYTES]u8 = [_]u8{0} ** MAX_BYTES;
 
@@ -29,6 +47,7 @@ const Client = struct {
 
         while (true) {
 
+            log.info("waiting for request...", .{});
             const read_len = posix.read(socket, &buffer) catch |err| {
                 log.err("error reading: {}", .{err});
                 return;
@@ -37,17 +56,94 @@ const Client = struct {
             log.debug("read {} bytes", .{read_len});
             if (read_len == 0) return;
 
-            log.debug("{s}", .{buffer[0..read_len]});
+            // log.debug("{s}", .{buffer[0..read_len]});
 
-            write(socket, buffer[0..read_len]) catch |err| {
-                log.err("error writing: {}", .{err});
-            };
+            var iterator = std.mem.splitSequence(u8, buffer[0..read_len], "\n");
+
+            while (iterator.next()) |request| {
+
+                if (request.len == 0) continue;
+
+                log.debug("processing: {s}", .{request});
+
+                const maybe_parsed = std.json.parseFromSlice(Request, allocator, request, .{});
+                if (maybe_parsed) |parsed| {
+
+                    defer parsed.deinit();
+
+                    if (!eql(u8, "isPrime", parsed.value.method)) {
+                        
+                        // log.debug("request {s} does not contain isPrime", .{request});
+
+                        write(socket, request) catch |err| {
+                            log.err("failed to sent malformed response: {}", .{err});
+                            return;
+                        };
+
+                        return;
+                    }
+
+                    log.info("correct request", .{});
+
+                    if (isPrime(parsed.value.number)) {
+
+                        // log.debug("isprime = true", .{});
+                        write(socket, response_isprime_true) catch |err| {
+                            log.err("error writing correct response: {}", .{err});
+                            return;
+                        };
+
+                    } else {
+
+                        // log.debug("isprime = false", .{});
+                        write(socket, response_isprime_false) catch |err| {
+                            log.err("error writing correct response: {}", .{err});
+                            return;
+                        };
+                    }
+
+
+                } else |_| {
+                    log.info("Malformed request: {s}", .{request});
+
+                    write(socket, request) catch |err| {
+                        log.err("failed to sent malformed response: {}", .{err});
+                        return;
+                    };
+
+                    return;
+                }
+
+
+            }
+
+
+
+        
         }
 
     }
 
 };
 
+fn isPrime(n: i32) bool {
+
+    log.info("calculating if its a prime...", .{});
+
+    if (n <= 1) return false;
+
+    const max_check: usize = @intFromFloat(@floor(@sqrt(@as(f32, @floatFromInt(n)))));
+
+    const x: usize = @intCast(n);
+
+    for (2..(max_check + 1)) |d| {
+
+        if (x % d == 0) return false;
+    }
+
+    return true;
+
+}
 
 fn write(socket: posix.socket_t, msg: []const u8) !void {
     var pos: usize = 0;
@@ -62,6 +158,11 @@ fn write(socket: posix.socket_t, msg: []const u8) !void {
 }
 
 pub fn main() !void {
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    const allocator = gpa.allocator();
 
     const host = [4]u8{ 0, 0, 0, 0 };
     const port = 8000;
@@ -91,8 +192,8 @@ pub fn main() !void {
             continue;
         };
 
-        const client = Client{ .socket = socket, .address = addr};
-        const thread = try std.Thread.spawn(.{}, Client.handle, .{client});
+        const client = Client{ .socket = socket, .address = client_addr};
+        const thread = try std.Thread.spawn(.{}, Client.handle, .{client, allocator});
         thread.detach();
 
     }
