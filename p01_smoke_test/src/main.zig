@@ -91,7 +91,7 @@ pub fn main() !void {
             continue;
         };
 
-        const client = Client{ .socket = socket, .address = addr};
+        const client = Client{ .socket = socket, .address = client_addr};
         const thread = try std.Thread.spawn(.{}, Client.handle, .{client});
         thread.detach();
 
