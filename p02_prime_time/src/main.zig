@@ -1,4 +1,5 @@
 const std = @import("std");
+const print = std.debug.print;
 const net = std.net;
 const posix = std.posix;
 const eql = std.mem.eql;
@@ -12,16 +13,6 @@ pub const std_options = .{
 };
 
 const MAX_BYTES = 1638400;
-
-const Request = struct {
-    method: []const u8,
-    number: i32,
-};
-
-// const Response = struct {
-//     method: []const u8,
-//     prime: bool
-// };
 
 
 const response_isprime_true = "{\"method\":\"isPrime\",\"prime\":true}\n";
@@ -68,8 +59,14 @@ const Client = struct {
 
                 const maybe_parsed = std.json.parseFromSlice(Request, allocator, request, .{});
                 if (maybe_parsed) |parsed| {
-
                     defer parsed.deinit();
+
+                    const number: i32 = blk: {
+                        switch (parsed.value.number) {
+                            .integer => |num| break :blk @intCast(num),
+                            else => return,
+                        }
+                    };
 
                     if (!eql(u8, "isPrime", parsed.value.method)) {
                         
@@ -85,7 +82,7 @@ const Client = struct {
 
                     log.info("correct request", .{});
 
-                    if (isPrime(parsed.value.number)) {
+                    if (isPrime(number)) {
 
                         // log.debug("isprime = true", .{});
                         write(socket, response_isprime_true) catch |err| {
@@ -201,3 +198,21 @@ pub fn main() !void {
 }
 
 
+const Request = struct {
+    method: []const u8,
+    number: std.json.Value,
+};
+
+test "parse json" {
+
+    const allocator = std.testing.allocator;
+    const req = 
+        \\{"method":"isPrime","number":"2134071"}
+    ;
+
+    const parsed = try std.json.parseFromSlice(Request, allocator, req, .{});
+    defer parsed.deinit();
+
+    print("number = {}", .{parsed.value.number});
+
+}
