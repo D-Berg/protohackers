@@ -47,6 +47,7 @@ fn bufferedMessage(self: *Reader) ?[]u8 {
         }
     }
 
+    if (pos == buf.len - 1) log.warn("buffer full", .{});
 
     return null;
 

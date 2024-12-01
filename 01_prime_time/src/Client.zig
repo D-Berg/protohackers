@@ -34,8 +34,6 @@ pub fn handle(client: Client, allocator: Allocator) void {
     var buffer: [MAX_BYTES]u8 = .{0} ** MAX_BYTES;
     var reader = Reader{.buf = &buffer, .socket = socket};
 
-
-
     while (true) : (req_idx += 1) {
         
 
@@ -71,15 +69,15 @@ pub fn handle(client: Client, allocator: Allocator) void {
 
                     if (isPrime(@intCast(number))) {
 
-                        const respone = response_isprime_true;
+                        const response = response_isprime_true;
 
                         log.debug("c{}, r{}: request = {s}, response = {s}", .{
-                            client.idx, req_idx, request, respone
+                            client.idx, req_idx, request, response
                         });
 
-                        write(socket, respone) catch |err| {
+                        write(socket, response) catch |err| {
                             log.err("c{}, r{}: error writing correct response: {s}, request: {s}, err: {}", .{
-                                client.idx, req_idx, respone, request, err
+                                client.idx, req_idx, response, request, err
                             });
                             return;
                         };

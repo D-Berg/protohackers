@@ -63,10 +63,12 @@ test "parse json" {
 
     const allocator = std.testing.allocator;
     const req = 
-        \\{"method":"isPrime","number":"2134071"}
+        \\{"method":"isPrime","number":"2134071"}\n
     ;
 
-    const parsed = try std.json.parseFromSlice(Request, allocator, req, .{});
+    const parsed = try std.json.parseFromSlice(Request, allocator, req, .{
+        .ignore_unknown_fields = true
+    });
     defer parsed.deinit();
 
     print("number = {}", .{parsed.value.number});
