@@ -1,0 +1,7 @@
+.{
+    .name = .tcp_server,
+    .version = "1.0.0",
+    .fingerprint = 0xeba48c6e674f9401,
+    .dependencies = .{},
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}
