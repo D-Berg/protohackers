@@ -2,11 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
+const prime_time = @import("prime_time.zig");
+
 const log = std.log;
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
 const Args = enum {
-    smoke_test,
+    @"smoke-test",
+    @"prime-time",
 };
 
 var stdout_buffer: [1024]u8 = undefined;
@@ -36,7 +39,8 @@ pub fn main() !void {
     } else if (args.len == 2) {
         if (std.meta.stringToEnum(Args, args[1])) |handler| {
             switch (handler) {
-                .smoke_test => try Server.listen(gpa, smoke_test_handler),
+                .@"smoke-test" => try Server.listen(gpa, smoke_test_handler),
+                .@"prime-time" => try Server.listen(gpa, prime_time.handle),
             }
         }
     }
@@ -118,6 +122,12 @@ const Server = struct {
             std.posix.close(client.socket);
             log.info("connection closed", .{});
         }
+
+        var arena_impl: std.heap.ArenaAllocator = .init(gpa);
+        defer arena_impl.deinit();
+
+        const arena = arena_impl.allocator();
+
         var read_buf: [256]u8 = undefined;
         var write_buf: [256]u8 = undefined;
 
@@ -128,7 +138,7 @@ const Server = struct {
         const reader = stream_reader.interface();
         const writer = &stream_writer.interface;
 
-        try handle_fn(gpa, reader, writer);
+        try handle_fn(arena, reader, writer);
     }
 };
 
